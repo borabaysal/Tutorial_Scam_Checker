@@ -20,10 +20,18 @@ EXIT = {"SCAM": 3, "HIGH_RISK": 2, "CAUTION": 1, "NO_RED_FLAGS": 0, "INCONCLUSIV
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="scamcheck", description="Check 'AI trading bot' tutorial code for scam patterns.")
-    p.add_argument("target", help="Solidity file, '-' for stdin, a YouTube link, or a pastebin/gist link")
+    p.add_argument("target", nargs="?", help="Solidity file, '-' for stdin, a YouTube link, or a pastebin/gist link")
     p.add_argument("--json", action="store_true", help="print the full JSON report")
     p.add_argument("--no-llm", action="store_true", help="skip the LLM explanation")
+    p.add_argument("--check-llm", action="store_true", help="verify the LLM key/provider with one tiny call and exit")
     a = p.parse_args(argv)
+    if a.check_llm:
+        from .explain import self_test
+        ok, msg = self_test()
+        print(("LLM OK: " if ok else "LLM FAILED: ") + msg)
+        return 0 if ok else 1
+    if not a.target:
+        p.error("target is required (or use --check-llm)")
 
     if a.target == "-":
         text = sys.stdin.read()

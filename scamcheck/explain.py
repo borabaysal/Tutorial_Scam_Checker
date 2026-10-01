@@ -101,25 +101,61 @@ def build_prompt(verdict: Verdict, analysis: Analysis | None, narrative: list[di
 # --------------------------------------------------------------------------
 
 
+class LLMError(RuntimeError):
+    """LLM call failed. Message is safe to show users (never contains the key)."""
+
+
 def _post_json(url: str, payload: dict, headers: dict, timeout: int = 60) -> dict:
+    # Explicit User-Agent: some CDNs in front of LLM APIs reject the default
+    # "Python-urllib/x.y" agent with 403.
     req = urllib.request.Request(url, data=json.dumps(payload).encode(),
-                                 headers={"Content-Type": "application/json", **headers})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read())
+                                 headers={"Content-Type": "application/json",
+                                          "User-Agent": "TutorialScamChecker/0.1", **headers})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raise LLMError(f"HTTP {e.code}: {_provider_error(e)}") from e
+    except urllib.error.URLError as e:
+        raise LLMError(f"network error: {e.reason}") from e
+
+
+def _provider_error(e: urllib.error.HTTPError) -> str:
+    try:
+        body = json.loads(e.read() or b"{}")
+        err = body.get("error", body)
+        msg = err.get("message") if isinstance(err, dict) else str(err)
+    except (ValueError, OSError):
+        msg = ""
+    hint = {401: "API key rejected (wrong, revoked, or for a different provider)",
+            402: "account out of credits",
+            403: "key lacks access to this model, or request blocked",
+            404: "model name not found for this provider (check SCAMCHECK_MODEL)",
+            429: "rate limited or quota exceeded"}.get(e.code, "")
+    return "; ".join(x for x in (hint, (msg or "")[:200]) if x) or "no details"
 
 
 def provider_config() -> dict | None:
     """Pick an LLM provider from the environment. Returns None if none configured."""
     model = os.environ.get("SCAMCHECK_MODEL")
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return {"kind": "anthropic", "key": os.environ["ANTHROPIC_API_KEY"], "model": model or "claude-haiku-4-5"}
-    if os.environ.get("OPENROUTER_API_KEY"):
-        return {"kind": "openai", "key": os.environ["OPENROUTER_API_KEY"],
-                "url": "https://openrouter.ai/api/v1/chat/completions", "model": model or "anthropic/claude-haiku-4.5"}
-    if os.environ.get("OPENAI_API_KEY"):
-        base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-        return {"kind": "openai", "key": os.environ["OPENAI_API_KEY"], "url": f"{base}/chat/completions",
-                "model": model or "gpt-4o-mini"}
+    # SCAMCHECK_PROVIDER pins a provider; otherwise first key found wins. Pinning
+    # matters because e.g. an ANTHROPIC_API_KEY exported for another tool would
+    # otherwise silently take priority over the key you meant to use.
+    want = os.environ.get("SCAMCHECK_PROVIDER", "").strip().lower()
+    order = [want] if want else ["anthropic", "openrouter", "openai"]
+    for name in order:
+        key = os.environ.get(f"{name.upper()}_API_KEY", "").strip()
+        if not key:
+            continue
+        if name == "anthropic":
+            return {"name": name, "kind": "anthropic", "key": key, "model": model or "claude-haiku-4-5"}
+        if name == "openrouter":
+            return {"name": name, "kind": "openai", "key": key,
+                    "url": "https://openrouter.ai/api/v1/chat/completions", "model": model or "anthropic/claude-haiku-4.5"}
+        if name == "openai":
+            base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+            return {"name": name, "kind": "openai", "key": key, "url": f"{base}/chat/completions",
+                    "model": model or "gpt-4o-mini"}
     return None
 
 
@@ -229,9 +265,27 @@ def explain(verdict: Verdict, analysis: Analysis | None, narrative: list[dict], 
         return {"text": fallback, "source": "template", "note": "No LLM configured; deterministic explanation."}
     try:
         text = call_llm(SYSTEM_PROMPT, build_prompt(verdict, analysis, narrative, code, video), cfg).strip()
-    except (urllib.error.URLError, TimeoutError, OSError, KeyError, ValueError) as e:
-        return {"text": fallback, "source": "template", "note": f"LLM call failed ({type(e).__name__}); deterministic explanation."}
+    except LLMError as e:
+        return {"text": fallback, "source": "template",
+                "note": f"LLM call failed ({cfg['name']}, {cfg['model']}): {e}. Showing deterministic explanation."}
+    except (TimeoutError, OSError, KeyError, ValueError) as e:
+        return {"text": fallback, "source": "template",
+                "note": f"LLM call failed ({cfg['name']}, {cfg['model']}): {type(e).__name__}. Showing deterministic explanation."}
     if not guard_explanation(text, verdict):
         return {"text": fallback, "source": "template",
                 "note": "LLM output contradicted the static verdict and was discarded."}
     return {"text": text, "source": f"llm:{cfg['model']}", "note": ""}
+
+
+def self_test() -> tuple[bool, str]:
+    """One tiny real call to verify LLM configuration. Used by `scamcheck --check-llm`."""
+    cfg = provider_config()
+    if not cfg:
+        return False, "no API key set (ANTHROPIC_API_KEY / OPENROUTER_API_KEY / OPENAI_API_KEY)"
+    try:
+        out = call_llm("Reply with the single word: ok", "ping", cfg)
+    except LLMError as e:
+        return False, f"{cfg['name']} / {cfg['model']}: {e}"
+    except (TimeoutError, OSError, KeyError, ValueError) as e:
+        return False, f"{cfg['name']} / {cfg['model']}: {type(e).__name__}: {e}"
+    return True, f"{cfg['name']} / {cfg['model']}: replied {out.strip()[:20]!r}"

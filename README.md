@@ -63,6 +63,17 @@ python -m scamcheck.web
 
 Optional LLM: set one of `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`,
 `OPENAI_API_KEY` (+ `OPENAI_BASE_URL` for compatible servers). See `.env.example`.
+The first key found wins (Anthropic → OpenRouter → OpenAI); force one with
+`SCAMCHECK_PROVIDER=openrouter`. Verify your setup with:
+
+```bash
+python3 -m scamcheck --check-llm
+# LLM OK: openrouter / anthropic/claude-haiku-4.5: replied 'ok'
+# LLM FAILED: anthropic / claude-haiku-4-5: HTTP 401: API key rejected ...
+```
+
+If the LLM fails, the UI shows the provider, model, HTTP status and reason
+under the explanation, and falls back to the deterministic explanation.
 
 ## Tests
 
