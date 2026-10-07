@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claimed-PnL Verifier</title>
+<style>
+  :root { --bg:#0f1115; --card:#171a21; --fg:#e7e9ee; --muted:#9aa3b2; --border:#2a2f3a;
+          --red:#ff5d5d; --orange:#ffa94d; --yellow:#ffd43b; --green:#51cf66; --blue:#74c0fc; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 32px 20px 64px; }
+  nav { margin-bottom: 18px; font-size: 14px; } nav a { color: var(--blue); margin-right: 16px; text-decoration: none; }
+  nav a.on { color: var(--fg); font-weight: 600; }
+  h1 { margin: 0 0 4px; font-size: 26px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  input[type=text], input[type=number] { width:100%; background:var(--card); color:var(--fg); border:1px solid var(--border);
+          border-radius:10px; padding:11px 12px; font:14px/1.4 ui-monospace,Menlo,Consolas,monospace; }
+  .grid { display:grid; grid-template-columns: 1fr 140px; gap: 10px; margin-bottom: 10px; }
+  .row { display:flex; gap:10px; align-items:center; margin:12px 0 24px; flex-wrap:wrap; }
+  button { background:var(--blue); color:#0b1220; border:0; border-radius:8px; padding:10px 18px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.6; cursor:wait; }
+  label.f { display:block; color:var(--muted); font-size:13px; margin: 0 0 4px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px; margin-bottom:16px; }
+  .verdict { border-left: 6px solid var(--muted); }
+  .verdict.CONSISTENT { border-left-color: var(--green); } .verdict.OVERSTATED { border-left-color: var(--yellow); }
+  .verdict.GROSSLY_OVERSTATED, .verdict.CONTRADICTED { border-left-color: var(--red); }
+  .verdict.UNVERIFIABLE { border-left-color: var(--orange); } .verdict.NO_CLAIM { border-left-color: var(--blue); }
+  .verdict h2 { margin:0 0 10px; font-size:20px; }
+  .vs { display:grid; grid-template-columns: 90px 1fr; gap: 4px 12px; font-size: 14px; }
+  .vs .k { color: var(--muted); }
+  .nums { width:100%; border-collapse: collapse; font-size: 14px; }
+  .nums td { padding: 6px 0; border-top: 1px solid var(--border); }
+  .nums tr:first-child td { border-top: 0; }
+  .nums td.v { text-align: right; font-variant-numeric: tabular-nums; font-family: ui-monospace,Menlo,Consolas,monospace; }
+  .nums tr.total td { font-weight: 700; font-size: 15px; }
+  .nums td.ind { padding-left: 18px; color: var(--muted); }
+  .pos { color: var(--green); } .neg { color: var(--red); }
+  .pills { display:flex; gap:8px; flex-wrap:wrap; margin-bottom: 10px; }
+  .pill { border:1px solid var(--border); border-radius:999px; padding:3px 10px; font-size:13px; color:var(--muted); }
+  .pill b { color: var(--fg); }
+  .str { display:inline-block; font-size:11px; font-weight:700; text-transform:uppercase; border-radius:6px; padding:2px 8px; }
+  .str.solid { background:var(--green); color:#021; } .str.moderate { background:var(--yellow); color:#220; }
+  .str.thin, .str.none { background:var(--red); color:#200; }
+  ul { margin: 6px 0 0; padding-left: 20px; } li { margin: 3px 0; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .err { color: var(--orange); }
+  h3 { margin: 0 0 10px; font-size: 16px; }
+  .ex { color: var(--blue); cursor: pointer; text-decoration: underline dotted; }
+</style>
+</head>
+<body>
+<main>
+  <nav><a href="/">Scam code checker</a><a href="/pnl" class="on">Claimed-PnL verifier</a></nav>
+  <h1>Claimed-PnL Verifier</h1>
+  <p class="sub">"My bot made 300% this month." Paste the wallet and the claim. We rebuild the real result from the
+    wallet's on-chain fills on Hyperliquid, net of fees and funding, and show how many trades it actually rests on.</p>
+
+  <label class="f" for="addr">Wallet address</label>
+  <input type="text" id="addr" spellcheck="false" autocomplete="off" placeholder="0x…">
+  <div class="grid" style="margin-top:10px">
+    <div><label class="f" for="claim">The claim (optional)</label>
+      <input type="text" id="claim" placeholder='e.g. "turned $500 into $5k in 2 weeks" or "+40% this month"'></div>
+    <div><label class="f" for="days">Days (optional)</label>
+      <input type="number" id="days" min="1" max="3650" placeholder="from claim"></div>
+  </div>
+  <div class="row">
+    <button id="go">Verify</button>
+    <span class="muted">Examples: <span class="ex" data-claim="my bot made 300% this month">300% this month</span> ·
+      <span class="ex" data-claim="5% a day, every day">5% a day</span> ·
+      <span class="ex" data-claim="turned $1,000 into $10k in 2 weeks">$1k → $10k in 2 weeks</span></span>
+  </div>
+  <div id="out"></div>
+  <p class="muted">Read-only: uses Hyperliquid's public data. Nothing is stored. This shows what a wallet did, not who
+    owns it. Never paste a private key or seed phrase anywhere.</p>
+</main>
+<script src="/pnl.js"></script>
+</body>
+</html>
