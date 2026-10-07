@@ -362,3 +362,30 @@ def test_getter_with_swap_substring_is_not_a_trade():
 
 def load_rw(name):
     return (REALWORLD / name).read_text()
+
+
+
+def test_llm_http_error_is_explained_without_leaking_key(monkeypatch):
+    import io, urllib.error
+    import scamcheck.explain as ex
+    for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "SCAMCHECK_PROVIDER"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-SECRETSECRET")
+    def boom(req, timeout=60):
+        raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {},
+                                     io.BytesIO(b'{"error":{"message":"No auth credentials found"}}'))
+    monkeypatch.setattr(ex.urllib.request, "urlopen", boom)
+    r = check(load("scam_split_string.sol"))
+    note = r["explanation"]["note"]
+    assert "HTTP 401" in note and "openrouter" in note and "No auth credentials" in note
+    assert "SECRET" not in note and r["verdict"]["level"] == "SCAM"
+
+
+def test_provider_pin_overrides_priority(monkeypatch):
+    from scamcheck.explain import provider_config
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "a")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "b")
+    monkeypatch.delenv("SCAMCHECK_PROVIDER", raising=False)
+    assert provider_config()["name"] == "anthropic"
+    monkeypatch.setenv("SCAMCHECK_PROVIDER", "openrouter")
+    assert provider_config()["name"] == "openrouter"
